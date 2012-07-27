@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Text;
 using System.Xml;
 using System.Xml.Serialization;
 
@@ -21,6 +22,7 @@ namespace HipChat
         private bool notify = false;
         private string token = string.Empty;
         private BackgroundColor color = BackgroundColor.yellow; // default is yellow
+		private ApiMessageFormat messageFormat = ApiMessageFormat.HTML;
 
         /// <summary>
         /// Background color for message. One of "yellow", "red", "green", "purple", or "random". (default: yellow)
@@ -41,6 +43,16 @@ namespace HipChat
         /// Desired response format: json or xml. (default: json)
         /// </summary>
         public ApiResponseFormat Format { get { return format; } set { format = value; } }
+
+		/// <summary>
+		/// Determines how the message is treated by HipChat server and rendered inside HipChat applications.
+		/// </summary>
+		public enum ApiMessageFormat { HTML = 0, TEXT = 1 }
+
+		/// <summary>
+		/// Desired message format inside HipChat applications: html or text. (default: html)
+		/// </summary>
+		public ApiMessageFormat MessageFormat { get { return messageFormat; } set { messageFormat = value; } }
 
         /// <summary>
         /// Boolean flag of whether or not this message should trigger a notification for people in the room (based on their individual notification preferences). 0 = false, 1 = true. (default: 0)
@@ -423,8 +435,9 @@ namespace HipChat
                 }
             #endregion validation
 
-            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(FormatMessageUri(message));
+            HttpWebRequest request = (HttpWebRequest)HttpWebRequest.Create(FormatMessageUri());
             request.Method = "POST";
+        	FormatMessageData(message, request);
             // the API method currently only returns a fixed "sent" value, so there's no point returning it.
             // if something went wrong we'll get an HipChatApiWebException that will contain the message
             HttpUtils.CallApi(request);
@@ -548,18 +561,37 @@ namespace HipChat
         /// <summary>
         /// Formats the URI for the /rooms/message API (http://www.hipchat.com/docs/api/method/rooms/message)
         /// </summary>
-        private string FormatMessageUri(string message)
+        private string FormatMessageUri()
         {
-            var url = string.Format(@"https://api.hipchat.com/v1/rooms/message?auth_token={0}&room_id={1}&format={2}&notify={3}&from={4}&message={5}&color={6}",
+			var url = string.Format(@"https://api.hipchat.com/v1/rooms/message?auth_token={0}&room_id={1}&format={2}&notify={3}&from={4}&color={5}&message_format={6}",
                 Uri.EscapeDataString(this.Token),
                 Uri.EscapeDataString(this.RoomName),
                 this.Format.ToString().ToLower(),
                 this.NotifyAsChar,
 				Uri.EscapeDataString(this.From),
-				Uri.EscapeDataString(message),
-                this.Color.ToString());
+                this.Color.ToString(),
+				this.MessageFormat.ToString().ToLower());
             return url;
         }
+		private void FormatMessageData(string message, HttpWebRequest request)
+		{
+			UTF8Encoding encoding = new UTF8Encoding();
+			var postData = string.Format(@"message={0}",
+			                             message);
+			byte[] data = encoding.GetBytes(postData);
+
+			request.Method = "POST";
+			request.ContentType = "application/x-www-form-urlencoded";
+			request.ContentLength = data.Length;
+
+			using (Stream newStream = request.GetRequestStream())
+			{
+				// Send the data.
+				newStream.Write(data, 0, data.Length);
+				newStream.Close();
+			}
+			
+		}
 
         /// <summary>
         /// Formats the URI for the /rooms/list API (http://www.hipchat.com/docs/api/method/rooms/list)
